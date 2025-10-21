@@ -96,7 +96,7 @@
                         <div id="response_m105" class="response-content"></div>
                     </div>
                     <div class="response-box">
-                        <h3>Resposta de Posi&ccedil;&atilde;o (M114):</h3>
+                        <h3>Resposta de Posi&ccedil;&atilde;o X (M114):</h3>
                         <div id="response_m114" class="response-content"></div>
                     </div>
                     <div class="response-box">
@@ -147,35 +147,40 @@
               <button id="btnDownloadDriver" class="btn" style="background:#2563eb" onclick="downloadCH340()">Baixar Driver Ender3</button>
 </div>
 
-        <footer><p>Interface de controle para impressora Ender 3 via Web Serial API @Tiago.Alternativa</p></footer>
+        <footer><h6><p>Interface de controle para impressora Ender 3 via Web Serial API @Tiago.Alternativa</p><h6></footer>
     </div>
 
     <script>
-    // ---------- Vari·veis globais ----------
+    // ---------- Vari√°veis globais ----------
     let port = null;
     let portOpen = false;
     let reader = null;
     let readLoopActive = false;
     let autoUpdateInterval = null;
     let countdownInterval = null;
-    let countdownTime = 60; // 3 minutos em segundos
+    let countdownTime = 60; // 1 minutos em segundos
     let lastCommand = '';
     let awaitingResponse = false;
     let holdPort = null; // usado ao trocar baud
 
-    // Monitor de impress„o
+    // Monitor de impress√£o
     let printStartTime = null;
     let printProgressData = { 5: null, 20: null, 60: null, 80: null };
     let currentProgress = 0;
     let printStarted = false;
 
+    // --- ADICIONADAS: vari√°veis para controle pedido ---
+    let ultimaTemperatura = null;
+    let ultimaPosicaoX = null;
+    // ---------------------------------------------------
+
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
-    // ---------- InicializaÁ„o ----------
+    // ---------- Inicializa√ß√£o ----------
     window.addEventListener('load', () => {
         if (!('serial' in navigator)) {
-            alert("Esta API Web Serial n&atilde;o &eacute; suportada neste navegador ou ele est&aacute; desatualizado. Use Google Chrome ou Microsoft Edge.");
+            alert("Esta API Web Serial n&atilde;o &eacute; suportada neste navegador ou  est&aacute; desatualizado. Use Google Chrome ou Microsoft Edge.");
             return;
         }
 
@@ -213,7 +218,7 @@
 
         try {
             if (!holdPort) {
-                // pede seleÁ„o ao usu·rio
+                // pede sele√ß√£o ao usu√°rio
                 port = await navigator.serial.requestPort();
             } else {
                 // reutiliza porta segura passada por changeSettings
@@ -255,7 +260,7 @@
     // Fecha a porta de forma limpa
     async function closePort() {
         try {
-            // para atualizaÁ„o autom·tica
+            // para atualiza√ß√£o autom√°tica
             stopAutoUpdate();
 
             if (reader) {
@@ -315,7 +320,7 @@
                 const { value, done } = await reader.read();
                 if (done) break;
                 if (value !== undefined && value !== null) {
-                    // value j· È string por TextDecoderStream
+                    // value j√° √© string por TextDecoderStream
                     handleSerialChunk(value);
                 }
             }
@@ -350,17 +355,17 @@
 
         console.log("RECEBEU:", text);
 
-        // Repassa processamento (pode receber pedaÁos; dependendo da firmware, combine linhas se necess·rio)
+        // Repassa processamento (pode receber peda√ßos; dependendo da firmware, combine linhas se necess√°rio)
         processResponse(text);
 
-        // Checa condiÁıes para inÌcio impress„o (temperature + position handled by extract funcs)
+        // Checa condi√ß√µes para in√≠cio impress√£o (temperature + position handled by extract funcs)
         checkPrintStartConditions();
     }
 
     // ---------- Envio de comandos ----------
     async function sendCommand(command) {
         if (!portOpen || !port || !port.writable) {
-            console.warn("Porta n„o disponÌvel para envio");
+            console.warn("Porta n√£o dispon√≠vel para envio");
             return;
         }
         try {
@@ -377,7 +382,7 @@
         } catch (err) {
             console.error("Erro ao enviar comando:", err);
         } finally {
-            // garantir que awaitingResponse fique true atÈ alguma resposta ser parseada
+            // garantir que awaitingResponse fique true at√© alguma resposta ser parseada
         }
     }
 
@@ -389,17 +394,17 @@
         await sendCommand(input);
     }
 
-    // ---------- Comandos autom·ticos (M105, M114, M27) ----------
+    // ---------- Comandos autom√°ticos (M105, M114, M27) ----------
     function startAutoUpdate() {
         // limpa caso exista
         stopAutoUpdate();
 
-        // primeira execuÁ„o imediata
+        // primeira execu√ß√£o imediata
         sendAutoCommands().catch(e => console.warn(e));
 
         autoUpdateInterval = setInterval(() => {
             sendAutoCommands().catch(e => console.warn(e));
-        }, 60000); // 180s
+        }, 60000); // 60s
 
         // contagem regressiva
         countdownTime = 60;
@@ -421,7 +426,7 @@
     async function sendAutoCommands() {
         if (!portOpen) return;
 
-        // limpa respostas prÈvias
+        // limpa respostas pr√©vias
         document.getElementById('response_m105').textContent = '';
         document.getElementById('response_m114').textContent = '';
         document.getElementById('response_m27').textContent = '';
@@ -430,7 +435,7 @@
         ta.value += "\n--- Atualizacao automatica ---\n";
         ta.scrollTop = ta.scrollHeight;
 
-        // envia com pequenos delays para n„o conflitar respostas
+        // envia com pequenos delays para n√£o conflitar respostas
         await sendCommand("M105");
         await delay(400);
         await sendCommand("M114");
@@ -444,19 +449,13 @@
 
     // ---------- Processamento de respostas ----------
     function processResponse(value) {
-        // Acumula resposta dependendo do lastCommand ó cuidado: firmware pode enviar respostas fora de ordem
-        // Aqui tratamos heurÌsticamente: se a linha contÈm padrıes, encaminhamos.
-        // Se for fragmentado, pode ser necess·rio acumular buffer por linha (melhoria futura).
-
-        // Se a resposta contÈm temperatura (padr„o comum de Marlin/firmwares)
+        
         if (/T:\d+(\.\d+)?/.test(value) || lastCommand === 'M105') {
-            document.getElementById('response_m105').textContent += value;
             awaitingResponse = false;
             extractTemperature(value);
         }
 
         if (/X:-?\d+(\.\d+)?/.test(value) || lastCommand === 'M114') {
-            document.getElementById('response_m114').textContent += value;
             awaitingResponse = false;
             extractPosition(value);
         }
@@ -468,34 +467,43 @@
         }
     }
 
-    // Extrai temperatura (M105) T:12.0
+    // Extrai temperatura (M105) ok T:25.4 /200.0 B:60.0 /60.0
     function extractTemperature(response) {
-        // tenta pegar T:xx.x ou T:xx
+        
         const tempMatch = response.match(/T: *(-?\d+\.?\d*)/);
         if (tempMatch && tempMatch[1]) {
             const temperature = parseFloat(tempMatch[1]);
             console.log("Temperatura:", temperature);
+            document.getElementById('response_m105').textContent = temperature.toString();
+            // Armazena √∫ltima temperatura
+            ultimaTemperatura = temperature;
+           
             if (temperature > 100 && !printStarted) {
-                // pede posiÁ„o logo apÛs detectar temperatura alta
+                // pede posi√ß√£o logo ap√≥s detectar temperatura alta (mantendo comportamento anterior)
                 setTimeout(() => { sendCommand("M114"); }, 500);
             }
         }
     }
 
-    // Extrai posiÁ„o X (M114) X:23
+    // Extrai posi√ß√£o X (M114) X:100.00 Y:200.00 Z:50.00 E:0.00
     function extractPosition(response) {
         const xMatch = response.match(/X: *(-?\d+\.?\d*)/);
         if (xMatch && xMatch[1]) {
             const xPosition = parseFloat(xMatch[1]);
             console.log("X:", xPosition);
-            if (xPosition > 20 && !printStarted) {
-                // confia que temperatura j· foi verificada anteriormente
+
+            // --- Aapresenta somente o valor ap√≥s X: no campo response_m114 ---
+            document.getElementById('response_m114').textContent = xPosition.toString();
+            // Armazena √∫ltima posi√ß√£o X
+            ultimaPosicaoX = xPosition;
+            
+            if (!printStarted && (ultimaTemperatura !== null) && (ultimaPosicaoX !== null) && ultimaTemperatura > 100 && ultimaPosicaoX > 20) {
                 startPrintTimer();
             }
         }
     }
 
-    // Extrai progresso (M27) SD printing byte 75/100
+    // Extrai progresso (M27) SD printing byte 500/1000
     function extractProgress(response) {
         const progressMatch = response.match(/SD printing byte (\d+)\/(\d+)/i);
         if (progressMatch && progressMatch[1] && progressMatch[2]) {
@@ -508,7 +516,7 @@
                 calculatePrintEndTime();
             }
         } else {
-            // alternativa: alguns firmwares enviam "SD printing byte: XXX/YYY"
+            
             const altMatch = response.match(/printing byte[: ]* *(\d+)\/(\d+)/i);
             if (altMatch) {
                 const cur = parseInt(altMatch[1],10);
@@ -523,16 +531,16 @@
         }
     }
 
-    // ---------- Monitor de impress„o ----------
+    // ---------- Monitor de impress√£o ----------
     function startPrintTimer() {
         if (!printStartTime) {
             printStartTime = new Date();
             printStarted = true;
             const startTimeStr = printStartTime.toLocaleTimeString();
             document.getElementById('print_start').textContent = startTimeStr;
-            document.getElementById("term_window").value += `\n>>> IMPRESS√O INICIADA: ${startTimeStr} <<<\n`;
+            document.getElementById("term_window").value += `\n>>> IMPRESS√ÉO INICIADA: ${startTimeStr} <<<\n`;
             document.getElementById("term_window").scrollTop = document.getElementById("term_window").scrollHeight;
-            console.log("Impress„o iniciada:", startTimeStr);
+            console.log("Impress√£o iniciada:", startTimeStr);
         }
     }
 
@@ -550,7 +558,7 @@
     function calculatePrintEndTime() {
         if (!printStartTime) return;
         if (!printProgressData[5] && currentProgress <= 5) return;
-        // preferir maior marco disponÌvel (80>60>20>5)
+        // preferir maior marco dispon√≠vel (80>60>20>5)
         const milestones = [80,60,20,5];
         for (const m of milestones) {
             if (printProgressData[m] && currentProgress > m) {
@@ -558,21 +566,21 @@
                 const estimatedTotalTime = (timeToM * 100) / m; // segundos
                 const estimatedEndTime = new Date(printStartTime.getTime() + estimatedTotalTime * 1000);
                 document.getElementById('print_end').textContent = estimatedEndTime.toLocaleTimeString();
-                document.getElementById('progress_info').textContent = `Progresso: ${currentProgress.toFixed(1)}% | Previs&atilde;o baseada em ${m}%`;
+                document.getElementById('progress_info').textContent = `Progresso: ${currentProgress.toFixed(1)}% | Previsao baseada em ${m}%`;
                 break;
             }
         }
     }
 
     function checkPrintStartConditions() {
-        // Mantido caso queira lÛgica adicional. As aÁıes efetivas j· ocorrem em extractTemperature/extractPosition.
+        
     }
 
     function resetPrintStart() {
         printStartTime = null;
         printStarted = false;
         document.getElementById('print_start').textContent = '--:--:--';
-        console.log("Monitor de inÌcio reiniciado");
+        console.log("Monitor de in√≠cio reiniciado");
     }
 
     function resetPrintEnd() {
@@ -580,10 +588,10 @@
         currentProgress = 0;
         document.getElementById('print_end').textContent = '--:--:--';
         document.getElementById('progress_info').textContent = 'Aguardando dados de progresso...';
-        console.log("Monitor de previs„o reiniciado");
+        console.log("Monitor de previsao reiniciado");
     }
 
-    // ---------- Utilit·rios ----------
+    // ---------- Utilit√°rios ----------
     function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
 
     function updateCountdownDisplay() {
@@ -607,10 +615,10 @@
         }
     }
 
-    // Quando usu·rio altera baud rate: fecha e reabre com mesma porta (holdPort)
+    // Quando usu√°rio altera baud rate: fecha e reabre com mesma porta (holdPort)
     async function changeSettings() {
         if (!portOpen || !port) return;
-        // segura a porta para reutilizar sem pedir ao usu·rio selecionar novamente
+        // segura a porta para reutilizar sem pedir ao usu√°rio selecionar novamente
         holdPort = port;
         // fecha porta atual e reabre com novo baud via openClose()
         await closePort();
@@ -618,7 +626,7 @@
         await openClose();
     }
 
-    // ---------- Fechar tudo ao sair da p·gina ----------
+    // ---------- Fechar tudo ao sair da p√°gina ----------
     window.addEventListener('beforeunload', async (e) => {
         try {
             if (reader) { try { await reader.cancel(); } catch(e){} }
